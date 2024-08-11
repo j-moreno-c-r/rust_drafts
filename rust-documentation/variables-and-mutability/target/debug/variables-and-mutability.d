@@ -1,0 +1,1 @@
+/home/joaozinho/rust_lilte_init/rust-documentation/variables-and-mutability/target/debug/variables-and-mutability: /home/joaozinho/rust_lilte_init/rust-documentation/variables-and-mutability/src/main.rs
