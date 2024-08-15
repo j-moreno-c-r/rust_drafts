@@ -9,11 +9,17 @@ fn main(){
     let simplefloat = 0.42;//default type is f64
     let simpleboolean = true;
     //but you can declare in a imperative way!
-    let imperativechar: &str = "noob"; //str are diferent of char double "" and multiple caractere
-    
-    println!("A &str:{simplechar} ");
+    let imperativestr: &str = "noob"; //str are diferent of char double "" and multiple caractere
+    //diferent of:
+    let imperativechar: char = 'b'; //of ....you know....
+    let imperativenum: i16 = 21;// in num imperative declaration set the size and type
+    let imperativeboolean: bool = false;
+    println!("A &str:{simplechar}");
+    println!("A num:{simplenum}");
+    println!("A floats:{simplefloat}");
+    println!("A Bolean:{simpleboolean}");
+    println!("A imperative str:{imperativestr}");
     println!("A imperative char:{imperativechar}");
-    println!("A num:{simplenum} ");
-    println!("A floats:{simplefloat} ");
-    println!("A Bolean:{simpleboolean} ");
+    println!("A imperative num:{imperativenum}");
+    println!("A imperative boolean:{imperativeboolean}");
 }
