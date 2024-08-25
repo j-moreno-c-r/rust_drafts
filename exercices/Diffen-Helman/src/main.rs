@@ -1,3 +1,4 @@
+#![allow(non_snake_case)]
 fn main() {
     let g=5.0 ; // publicly known
     let x=7.0 ; // only Alice knows this 
