@@ -28,4 +28,6 @@ fn passing_the_value(){
     let s2 = s1;
     let answer = s1 + s2;
     println!("{answer}");
-}
+}//this dont work in some types like strs... only for thas types who has knowed the time in compile
+ //tyme you can check this for a better explication https://doc.rust-lang.org/reference/dynamically-sized-types.html
+ 
