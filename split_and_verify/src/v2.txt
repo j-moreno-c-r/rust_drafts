@@ -1,0 +1,241 @@
+use std::convert::TryInto;
+use hex;
+
+#[derive(Debug)]
+pub struct Transaction {
+    pub version: i32,
+    pub marker: Option<u8>,
+    pub flag: Option<u8>,
+    pub inputs: Vec<Input>,
+    pub outputs: Vec<Output>,
+    pub locktime: u32,
+}
+
+#[derive(Debug)]
+pub struct Input {
+    pub txid: String,  // Changed to String (hex)
+    pub vout: u32,
+    pub scriptsig: String,  // Changed to String (hex)
+    pub sequence: u32,
+    pub witness: Option<Witness>,
+}
+
+#[derive(Debug)]
+pub struct Output {
+    pub amount: u64,
+    pub scriptpubkey: String,  // Changed to String (hex)
+}
+
+#[derive(Debug)]
+pub struct Witness {
+    pub items: Vec<String>,  // Changed to Vec<String> (hex)
+}
+
+fn main() {
+    let raw_tx_hex = "020000000001016065f2cd2ec8daa4d56d6da1cf9cfc6e362027835a8f1221c0d851e46f50d1610200000000ffffffff0266c93100000000001976a9148b0bcff94141a47a9a1b3a34d9538e620a257a9888ac94cb010000000000160014500b97afcadf36f6813ac708db1231b7ab5783e802483045022100fc7b7383d13c4649fc0e4bf488e19ba762eb06e22ca249da26f67d0439f1233202205be9483c4c760e6a9cf93373455c876d7ed2645114aa3f843a585d28375e242b012103c04a62bc2a9a602129b3269dcc24e4dae8cb98d3983b1e757156eaea65c58d7a00000000"; // Your raw transaction hex
+    let raw_tx = hex::decode(raw_tx_hex).expect("Invalid hex");
+    let tx = Transaction::parse(&raw_tx).expect("Parsing failed");
+    println!("{:#?}", tx);
+}
+
+impl Transaction {
+    pub fn parse(raw: &[u8]) -> Result<Self, &'static str> {
+        let mut index = 0;
+        let version = read_version(raw, &mut index)?;
+        let (marker, flag) = read_segwit_marker(raw, &mut index)?;
+        let mut inputs = read_inputs(raw, &mut index)?;
+        let outputs = read_outputs(raw, &mut index)?;
+        
+        if marker.is_some() {
+            read_witnesses(raw, &mut inputs, &mut index)?;
+        }
+        
+        let locktime = read_locktime(raw, &mut index)?;
+        
+        if index != raw.len() {
+            return Err("Extra data after transaction");
+        }
+        
+        Ok(Transaction {
+            version,
+            marker,
+            flag,
+            inputs,
+            outputs,
+            locktime,
+        })
+    }
+}
+
+fn read_version(data: &[u8], index: &mut usize) -> Result<i32, &'static str> {
+    check_remaining(data, *index, 4)?;
+    let bytes = data[*index..*index+4].try_into().unwrap();
+    *index += 4;
+    Ok(i32::from_le_bytes(bytes))
+}
+
+fn read_segwit_marker(data: &[u8], index: &mut usize) -> Result<(Option<u8>, Option<u8>), &'static str> {
+    if check_remaining(data, *index, 2).is_err() {
+        return Ok((None, None));
+    }
+    
+    let marker = data[*index];
+    let flag = data[*index + 1];
+    
+    if marker == 0x00 && flag >= 0x01 {
+        *index += 2;
+        Ok((Some(marker), Some(flag)))
+    } else {
+        Ok((None, None))
+    }
+}
+
+fn read_compact_size(data: &[u8], index: &mut usize) -> Result<usize, &'static str> {
+    check_remaining(data, *index, 1)?;
+    let first = data[*index];
+    *index += 1;
+    
+    match first {
+        0x00..=0xfc => Ok(first as usize),
+        0xfd => read_compact_size_part(data, index, 2),
+        0xfe => read_compact_size_part(data, index, 4),
+        0xff => read_compact_size_part(data, index, 8),
+    }
+}
+
+fn read_compact_size_part(data: &[u8], index: &mut usize, bytes: usize) -> Result<usize, &'static str> {
+    check_remaining(data, *index, bytes)?;
+    let mut buf = [0u8; 8];
+    buf[0..bytes].copy_from_slice(&data[*index..*index+bytes]);
+    *index += bytes;
+    Ok(match bytes {
+        2 => u16::from_le_bytes(buf[0..2].try_into().unwrap()) as usize,
+        4 => u32::from_le_bytes(buf[0..4].try_into().unwrap()) as usize,
+        8 => u64::from_le_bytes(buf).try_into().unwrap(),
+        _ => unreachable!(),
+    })
+}
+
+fn read_inputs(data: &[u8], index: &mut usize) -> Result<Vec<Input>, &'static str> {
+    let count = read_compact_size(data, index)?;
+    let mut inputs = Vec::with_capacity(count);
+    
+    for _ in 0..count {
+        inputs.push(read_input(data, index)?);
+    }
+    
+    Ok(inputs)
+}
+
+fn read_input(data: &[u8], index: &mut usize) -> Result<Input, &'static str> {
+    // Read txid as raw bytes
+    check_remaining(data, *index, 32)?;
+    let txid = hex::encode(&data[*index..*index+32]);
+    *index += 32;
+    
+    let vout = read_vout(data, index)?;
+    
+    // Read scriptsig as hex
+    let scriptsig_size = read_compact_size(data, index)?;
+    check_remaining(data, *index, scriptsig_size)?;
+    let scriptsig = hex::encode(&data[*index..*index+scriptsig_size]);
+    *index += scriptsig_size;
+    
+    let sequence = read_sequence(data, index)?;
+    
+    Ok(Input {
+        txid,
+        vout,
+        scriptsig,
+        sequence,
+        witness: None,
+    })
+}
+
+fn read_vout(data: &[u8], index: &mut usize) -> Result<u32, &'static str> {
+    check_remaining(data, *index, 4)?;
+    let bytes = data[*index..*index+4].try_into().unwrap();
+    *index += 4;
+    Ok(u32::from_le_bytes(bytes))
+}
+
+fn read_sequence(data: &[u8], index: &mut usize) -> Result<u32, &'static str> {
+    check_remaining(data, *index, 4)?;
+    let bytes = data[*index..*index+4].try_into().unwrap();
+    *index += 4;
+    Ok(u32::from_le_bytes(bytes))
+}
+
+fn read_outputs(data: &[u8], index: &mut usize) -> Result<Vec<Output>, &'static str> {
+    let count = read_compact_size(data, index)?;
+    let mut outputs = Vec::with_capacity(count);
+    
+    for _ in 0..count {
+        outputs.push(read_output(data, index)?);
+    }
+    
+    Ok(outputs)
+}
+
+fn read_output(data: &[u8], index: &mut usize) -> Result<Output, &'static str> {
+    let amount = read_amount(data, index)?;
+    
+    // Read scriptpubkey as hex
+    let scriptpubkey_size = read_compact_size(data, index)?;
+    check_remaining(data, *index, scriptpubkey_size)?;
+    let scriptpubkey = hex::encode(&data[*index..*index+scriptpubkey_size]);
+    *index += scriptpubkey_size;
+    
+    Ok(Output {
+        amount,
+        scriptpubkey,
+    })
+}
+
+fn read_amount(data: &[u8], index: &mut usize) -> Result<u64, &'static str> {
+    check_remaining(data, *index, 8)?;
+    let bytes = data[*index..*index+8].try_into().unwrap();
+    *index += 8;
+    Ok(u64::from_le_bytes(bytes))
+}
+
+fn read_witnesses(data: &[u8], inputs: &mut [Input], index: &mut usize) -> Result<(), &'static str> {
+    for input in inputs.iter_mut() {
+        let witness = read_witness(data, index)?;
+        input.witness = Some(witness);
+    }
+    Ok(())
+}
+
+fn read_witness(data: &[u8], index: &mut usize) -> Result<Witness, &'static str> {
+    let count = read_compact_size(data, index)?;
+    let mut items = Vec::with_capacity(count);
+    
+    for _ in 0..count {
+        let size = read_compact_size(data, index)?;
+        check_remaining(data, *index, size)?;
+        
+        // Store witness item as hex
+        let item = hex::encode(&data[*index..*index+size]);
+        *index += size;
+        
+        items.push(item);
+    }
+    
+    Ok(Witness { items })
+}
+
+fn read_locktime(data: &[u8], index: &mut usize) -> Result<u32, &'static str> {
+    check_remaining(data, *index, 4)?;
+    let bytes = data[*index..*index+4].try_into().unwrap();
+    *index += 4;
+    Ok(u32::from_le_bytes(bytes))
+}
+
+fn check_remaining(data: &[u8], index: usize, needed: usize) -> Result<(), &'static str> {
+    if data.len() < index + needed {
+        Err("Insufficient data")
+    } else {
+        Ok(())
+    }
+}
